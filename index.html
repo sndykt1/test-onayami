@@ -87,8 +87,7 @@
           </select>
         </label>
       </div>
-      <div id="transcript" contenteditable="true" class="card" style="border:1px dashed #e5e7eb; min-height:360px;">
-      </div>
+      <div id="transcript" contenteditable="true" class="card" style="border:1px dashed #e5e7eb; min-height:360px;"></div>
       <div class="hint" style="margin-top:8px;">※ リアルタイム認識はChromeのWeb Speech APIを使用します。手入力モードでは自由に編集できます。</div>
     </section>
 
@@ -162,7 +161,6 @@
       // Rebuild HTML with <span> around highlighted characters
       const indices = [...indicesSet].sort((a,b)=>a-b);
       let html = '';
-      let ptr = 0;
       let idxp = 0;
       for (let i = 0; i < text.length; i++) {
         const ch = text[i];
@@ -209,25 +207,69 @@
     }
 
     // =============================
-    // Fortune Logic
+    // Fortune Logic（キー文字一致を優先 & 例:「き」→ きいろ）
     // =============================
     const ITEMS = [
-      'はさみ', 'ほうき', 'ふせん', 'はんかち', 'ほっとけーき', 'ふでばこ', 'ひのきの枝', 'ほしのシール', 'ふうせん', 'へあごむ', 'ほうじ茶', 'ふくろ', 'ひまわりのたね', 'へんそうめがね', 'ほたるぶくろ'
+      'はさみ', 'ほうき', 'ふせん', 'はんかち', 'ほっとけーき', 'ふでばこ',
+      'ひのきの枝', 'ほしのシール', 'ふうせん', 'へあごむ', 'ほうじ茶',
+      'ふくろ', 'ひまわりのたね', 'へんそうめがね', 'ほたるぶくろ'
     ];
+
+    // マッチしやすい色名を追加
     const COLORS = [
-      'ももいろ', 'みずいろ', 'むらさき', 'みどり', 'むぎちゃいろ', 'めろんそーだ', 'もくようのあさのいろ'
+      'ももいろ','みずいろ','むらさき','みどり','むぎちゃいろ','めろんそーだ',
+      'もくようのあさのいろ',
+      // 追加（単音節系も）
+      'あか','あお','きいろ','きみどり','くろ','しろ'
     ];
+
     const LUCKS = [
-      'きょうは聞き役にまわると吉', 'きっぷのよい行動が運をひらく', 'けいけん者のひとことにヒントあり', 'こだわりすぎず軽やかに動くと進展', 'くうきを入れかえると流れ◎', 'こころを言葉にしてみると整理できる'
+      'きょうは聞き役にまわると吉',
+      'きっぷのよい行動が運をひらく',
+      'けいけん者のひとことにヒントあり',
+      'こだわりすぎず軽やかに動くと進展',
+      'くうきを入れかえると流れ◎',
+      'こころを言葉にしてみると整理できる'
     ];
+
+    // ひらがなの重複を除いた配列を返す
+    function keyChars(key) {
+      const ks = (key || '').match(/[\u3041-\u3096]/g) || [];
+      return Array.from(new Set(ks));
+    }
+
+    // キー文字を含む候補を優先（該当なしなら元配列）
+    function preferByChars(arr, chars) {
+      const matched = arr.filter(s => chars.some(c => s.includes(c)));
+      return matched.length ? matched : arr;
+    }
+
+    // 文字→カラーの強制マップ（拡張しやすい）
+    function colorOverride(chars) {
+      if (chars.includes('き')) return 'きいろ';  // リクエスト例
+      if (chars.includes('あ')) return 'あか';
+      if (chars.includes('み')) return 'みどり';
+      if (chars.includes('む')) return 'むらさき';
+      return null;
+    }
 
     function fortuneFromKey(key) {
       const seed = hashStringToInt(key || 'default');
       const rng = mulberry32(seed);
+      const chars = keyChars(key);
+
       function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
-      const item = pick(ITEMS);
-      const color = pick(COLORS);
-      const luck = pick(LUCKS);
+
+      const itemsCand = preferByChars(ITEMS, chars);
+      const lucksCand = preferByChars(LUCKS, chars);
+
+      const forced = colorOverride(chars);
+      const colorsCand = forced ? [forced] : preferByChars(COLORS, chars);
+
+      const item = pick(itemsCand);
+      const color = pick(colorsCand);
+      const luck = pick(lucksCand);
+
       return `ラッキーアイテム：${item}　/　ラッキーカラー：${color}\n${luck}`;
     }
 
@@ -257,14 +299,10 @@
       recognition.interimResults = true;
 
       recognition.onresult = (event) => {
-        let finalText = getPlainTextFromTranscript();
-        // 再構成：最後の結果を優先的に表示
         const results = Array.from(event.results);
         const text = results.map(r => r[0].transcript).join('');
-        // IMEや既存テキストを上書きしないよう、追記スタイル
         const div = document.getElementById('transcript');
-        div.textContent = text; // シンプルに最新を表示（必要に応じて追記方式に変更可）
-        // ハイライトがある場合は再描画
+        div.textContent = text; // シンプルに最新を表示
         if (highlightedIndices.size) {
           const plain = getPlainTextFromTranscript();
           renderHighlighted(plain, highlightedIndices);
