@@ -94,25 +94,16 @@
     <aside class="card">
       <h3 style="margin-top:0;">占い結果</h3>
       <div class="muted">ハイライトした「ひらがな」をつないだ文字列を種にして、結果を決めます。</div>
-      <div style="margin-top:10px;">
-        <div class="muted">抽出されたひらがな：</div>
-        <div id="kanaKey" class="card kanafused" style="min-height:44px;"></div>
-      </div>
       <div class="result" id="fortuneText"></div>
       <div class="hint">※ 同じ文字列からは毎回同じ結果が出ます（疑似乱数を固定）。</div>
     </aside>
   </main>
 
   <script>
-    // =============================
-    // Utilities
-    // =============================
-    const HIRA_RE = /[\u3041-\u3096]/; // ぁ-ゖ（拗音含む）
-    const HIRA_GLOBAL_RE = /[\u3041-\u3096]/g;
+    const HIRA_RE = /[\u3041-\u3096]/;
 
     function getPlainTextFromTranscript() {
       const div = document.getElementById('transcript');
-      // remove zero-width & normalize
       return div.innerText.replace(/[\u200B\u200C\u200D]/g, '').normalize('NFC');
     }
 
@@ -124,7 +115,6 @@
       return positions;
     }
 
-    // Fisher-Yates sampling without replacement (partial shuffle)
     function sampleUnique(arr, k, rng) {
       const a = arr.slice();
       for (let i = a.length - 1; i > 0; i--) {
@@ -134,7 +124,6 @@
       return a.slice(0, Math.min(k, a.length)).sort((x,y) => x - y);
     }
 
-    // Seeded RNG (Mulberry32)
     function mulberry32(seed) {
       let t = seed >>> 0;
       return function() {
@@ -146,19 +135,14 @@
     }
 
     function hashStringToInt(s) {
-      // simple djb2
       let h = 5381;
       for (let i = 0; i < s.length; i++) h = ((h << 5) + h) + s.charCodeAt(i);
       return h >>> 0;
     }
 
-    // =============================
-    // Highlight Logic
-    // =============================
     let highlightedIndices = new Set();
 
     function renderHighlighted(text, indicesSet) {
-      // Rebuild HTML with <span> around highlighted characters
       const indices = [...indicesSet].sort((a,b)=>a-b);
       let html = '';
       let idxp = 0;
@@ -180,172 +164,53 @@
     }
 
     function extractKanaFromHighlights(text, indicesSet) {
-      const arr = [...indicesSet].sort((a,b)=>a-b).map(i => text[i] || '').join('');
-      document.getElementById('kanaKey').textContent = arr;
-      return arr;
+      return [...indicesSet].sort((a,b)=>a-b).map(i => text[i] || '').join('');
     }
 
     function highlightRandom() {
       const k = Math.max(1, Math.min(parseInt(document.getElementById('count').value || '12', 10), 200));
       const text = getPlainTextFromTranscript();
       const positions = findHiraganaPositions(text);
-      const seed = hashStringToInt(text + '|' + k); // 内容×個数で決定的
+      const seed = hashStringToInt(text + '|' + k);
       const rng = mulberry32(seed);
       const sampled = sampleUnique(positions, k, rng);
       highlightedIndices = new Set(sampled);
       renderHighlighted(text, highlightedIndices);
-      extractKanaFromHighlights(text, highlightedIndices);
     }
 
     function clearHighlights() {
       highlightedIndices.clear();
       const text = getPlainTextFromTranscript();
       const div = document.getElementById('transcript');
-      div.textContent = text; // plain reset
-      document.getElementById('kanaKey').textContent = '';
+      div.textContent = text;
       document.getElementById('fortuneText').textContent = '';
     }
 
-    // =============================
-    // Fortune Logic（キー文字一致を優先 & 例:「き」→ きいろ）
-    // =============================
-    const ITEMS = [
-      'はさみ', 'ほうき', 'ふせん', 'はんかち', 'ほっとけーき', 'ふでばこ',
-      'ひのきの枝', 'ほしのシール', 'ふうせん', 'へあごむ', 'ほうじ茶',
-      'ふくろ', 'ひまわりのたね', 'へんそうめがね', 'ほたるぶくろ'
-    ];
+    const ITEMS = ['はさみ','ほうき','ふせん','はんかち','ほっとけーき','ふでばこ','ひのきの枝','ほしのシール','ふうせん','へあごむ','ほうじ茶','ふくろ','ひまわりのたね','へんそうめがね','ほたるぶくろ'];
+    const COLORS = ['ももいろ','みずいろ','むらさき','みどり','むぎちゃいろ','めろんそーだ','もくようのあさのいろ','あか','あお','きいろ','きみどり','くろ','しろ'];
+    const LUCKS = ['きょうは聞き役にまわると吉','きっぷのよい行動が運をひらく','けいけん者のひとことにヒントあり','こだわりすぎず軽やかに動くと進展','くうきを入れかえると流れ◎','こころを言葉にしてみると整理できる'];
 
-    // マッチしやすい色名を追加
-    const COLORS = [
-      'ももいろ','みずいろ','むらさき','みどり','むぎちゃいろ','めろんそーだ',
-      'もくようのあさのいろ',
-      // 追加（単音節系も）
-      'あか','あお','きいろ','きみどり','くろ','しろ'
-    ];
+    function keyChars(key){const ks=(key||'').match(/[\u3041-\u3096]/g)||[];return Array.from(new Set(ks));}
+    function preferByChars(arr,chars){const matched=arr.filter(s=>chars.some(c=>s.includes(c)));return matched.length?matched:arr;}
+    function colorOverride(chars){if(chars.includes('き'))return'きいろ';if(chars.includes('あ'))return'あか';if(chars.includes('み'))return'みどり';if(chars.includes('む'))return'むらさき';return null;}
 
-    const LUCKS = [
-      'きょうは聞き役にまわると吉',
-      'きっぷのよい行動が運をひらく',
-      'けいけん者のひとことにヒントあり',
-      'こだわりすぎず軽やかに動くと進展',
-      'くうきを入れかえると流れ◎',
-      'こころを言葉にしてみると整理できる'
-    ];
+    function fortuneFromKey(key){const seed=hashStringToInt(key||'default');const rng=mulberry32(seed);const chars=keyChars(key);function pick(a){return a[Math.floor(rng()*a.length)];}const items=preferByChars(ITEMS,chars);const lucks=preferByChars(LUCKS,chars);const forced=colorOverride(chars);const colors=forced?[forced]:preferByChars(COLORS,chars);return`ラッキーアイテム：${pick(items)}　/　ラッキーカラー：${pick(colors)}\n${pick(lucks)}`;}
 
-    // ひらがなの重複を除いた配列を返す
-    function keyChars(key) {
-      const ks = (key || '').match(/[\u3041-\u3096]/g) || [];
-      return Array.from(new Set(ks));
-    }
+    function runFortune(){const text=getPlainTextFromTranscript();if(!highlightedIndices.size)highlightRandom();const key=extractKanaFromHighlights(text,highlightedIndices);document.getElementById('fortuneText').textContent=fortuneFromKey(key);}
 
-    // キー文字を含む候補を優先（該当なしなら元配列）
-    function preferByChars(arr, chars) {
-      const matched = arr.filter(s => chars.some(c => s.includes(c)));
-      return matched.length ? matched : arr;
-    }
+    let recognition=null;let recognizing=false;
+    function initRecognizer(){const m=document.getElementById('mode').value;if(m!=='realtime')return;const SR=window.SpeechRecognition||window.webkitSpeechRecognition;if(!SR){alert('このブラウザは音声認識に対応していません。Chromeをお試しください。');return;}recognition=new SR();recognition.lang='ja-JP';recognition.continuous=true;recognition.interimResults=true;recognition.onresult=(event)=>{const text=Array.from(event.results).map(r=>r[0].transcript).join('');document.getElementById('transcript').textContent=text;if(highlightedIndices.size){renderHighlighted(getPlainTextFromTranscript(),highlightedIndices);}};recognition.onend=()=>{recognizing=false;toggleButtons();};}
+    function startRec(){if(document.getElementById('mode').value!=='realtime')return;if(!recognition)initRecognizer();if(!recognition)return;recognizing=true;toggleButtons();try{recognition.start();}catch(e){}}
+    function stopRec(){if(recognition&&recognizing){recognition.stop();}}
+    function toggleButtons(){document.getElementById('btnStart').disabled=recognizing||document.getElementById('mode').value!=='realtime';document.getElementById('btnStop').disabled=!recognizing;}
 
-    // 文字→カラーの強制マップ（拡張しやすい）
-    function colorOverride(chars) {
-      if (chars.includes('き')) return 'きいろ';  // リクエスト例
-      if (chars.includes('あ')) return 'あか';
-      if (chars.includes('み')) return 'みどり';
-      if (chars.includes('む')) return 'むらさき';
-      return null;
-    }
-
-    function fortuneFromKey(key) {
-      const seed = hashStringToInt(key || 'default');
-      const rng = mulberry32(seed);
-      const chars = keyChars(key);
-
-      function pick(arr) { return arr[Math.floor(rng() * arr.length)]; }
-
-      const itemsCand = preferByChars(ITEMS, chars);
-      const lucksCand = preferByChars(LUCKS, chars);
-
-      const forced = colorOverride(chars);
-      const colorsCand = forced ? [forced] : preferByChars(COLORS, chars);
-
-      const item = pick(itemsCand);
-      const color = pick(colorsCand);
-      const luck = pick(lucksCand);
-
-      return `ラッキーアイテム：${item}　/　ラッキーカラー：${color}\n${luck}`;
-    }
-
-    function runFortune() {
-      const text = getPlainTextFromTranscript();
-      // ひらがな未選択なら自動抽出
-      if (!highlightedIndices.size) highlightRandom();
-      const key = extractKanaFromHighlights(text, highlightedIndices);
-      const result = fortuneFromKey(key);
-      document.getElementById('fortuneText').textContent = result;
-    }
-
-    // =============================
-    // Speech Recognition (Web Speech API)
-    // =============================
-    let recognition = null;
-    let recognizing = false;
-
-    function initRecognizer() {
-      const m = document.getElementById('mode').value;
-      if (m !== 'realtime') return;
-      const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SR) { alert('このブラウザは音声認識に対応していません。Chromeをお試しください。'); return; }
-      recognition = new SR();
-      recognition.lang = 'ja-JP';
-      recognition.continuous = true;
-      recognition.interimResults = true;
-
-      recognition.onresult = (event) => {
-        const results = Array.from(event.results);
-        const text = results.map(r => r[0].transcript).join('');
-        const div = document.getElementById('transcript');
-        div.textContent = text; // シンプルに最新を表示
-        if (highlightedIndices.size) {
-          const plain = getPlainTextFromTranscript();
-          renderHighlighted(plain, highlightedIndices);
-        }
-      };
-
-      recognition.onend = () => {
-        recognizing = false;
-        toggleButtons();
-      };
-    }
-
-    function startRec() {
-      if (document.getElementById('mode').value !== 'realtime') return;
-      if (!recognition) initRecognizer();
-      if (!recognition) return;
-      recognizing = true; toggleButtons();
-      try { recognition.start(); } catch (e) {}
-    }
-    function stopRec() { if (recognition && recognizing) { recognition.stop(); } }
-
-    function toggleButtons() {
-      document.getElementById('btnStart').disabled = recognizing || document.getElementById('mode').value !== 'realtime';
-      document.getElementById('btnStop').disabled = !recognizing;
-    }
-
-    // =============================
-    // Events
-    // =============================
-    document.getElementById('btnStart').addEventListener('click', startRec);
-    document.getElementById('btnStop').addEventListener('click', stopRec);
-    document.getElementById('btnHighlight').addEventListener('click', highlightRandom);
-    document.getElementById('btnClear').addEventListener('click', clearHighlights);
-    document.getElementById('btnFortune').addEventListener('click', runFortune);
-    document.getElementById('btnPrint').addEventListener('click', () => window.print());
-    document.getElementById('mode').addEventListener('change', (e) => {
-      if (recognizing) stopRec();
-      const manual = e.target.value === 'manual';
-      document.getElementById('btnStart').disabled = manual;
-      document.getElementById('btnStop').disabled = true;
-    });
-
-    // 初期化
+    document.getElementById('btnStart').addEventListener('click',startRec);
+    document.getElementById('btnStop').addEventListener('click',stopRec);
+    document.getElementById('btnHighlight').addEventListener('click',highlightRandom);
+    document.getElementById('btnClear').addEventListener('click',clearHighlights);
+    document.getElementById('btnFortune').addEventListener('click',runFortune);
+    document.getElementById('btnPrint').addEventListener('click',()=>window.print());
+    document.getElementById('mode').addEventListener('change',(e)=>{if(recognizing)stopRec();const manual=e.target.value==='manual';document.getElementById('btnStart').disabled=manual;document.getElementById('btnStop').disabled=true;});
     initRecognizer();
   </script>
 </body>
